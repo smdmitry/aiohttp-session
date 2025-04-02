@@ -41,6 +41,7 @@ class RedisStorage(AbstractStorage):
         key_factory: Callable[[], str] = lambda: uuid.uuid4().hex,
         encoder: Callable[[object], str] = json.dumps,
         decoder: Callable[[str], Any] = json.loads,
+        storage_key_delimeter: str = "_"
     ) -> None:
         super().__init__(
             cookie_name=cookie_name,
@@ -62,6 +63,7 @@ class RedisStorage(AbstractStorage):
         if not isinstance(redis_pool, aioredis.Redis):
             raise TypeError(f"Expected redis.asyncio.Redis got {type(redis_pool)}")
         self._redis = redis_pool
+        self._storage_key_delimeter = storage_key_delimeter
 
     async def load_session(self, request: web.Request) -> Session:
         cookie = self.load_cookie(request)
@@ -69,7 +71,7 @@ class RedisStorage(AbstractStorage):
             return Session(None, data=None, new=True, max_age=self.max_age)
         else:
             key = str(cookie)
-            data_bytes = await self._redis.get(self.cookie_name + "_" + key)
+            data_bytes = await self._redis.get(self._get_storage_key(key))
             if data_bytes is None:
                 return Session(None, data=None, new=True, max_age=self.max_age)
             data_str = data_bytes.decode("utf-8")
@@ -95,7 +97,12 @@ class RedisStorage(AbstractStorage):
 
         data_str = self._encoder(self._get_session_data(session))
         await self._redis.set(
-            self.cookie_name + "_" + key,
+            self._get_storage_key(key),
             data_str,
             ex=session.max_age,
         )
+
+    async def _get_storage_key(
+        self, key: str,
+    ) -> str:
+        return self.cookie_name + self._storage_key_delimeter + key
